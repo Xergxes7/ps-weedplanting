@@ -1,265 +1,115 @@
-local globalState = GlobalState
-local HealthBaseDecay = math.random(Config.HealthBaseDecay[1], Config.HealthBaseDecay[2])
-
-local WeedPlantCache = {}
-
--- WeedPlant class
--- Represents an individual weed plant with properties for tracking growth, health, water, and fertilizer levels.
--- Each plant is stored in the global WeedPlants table and managed via MySQL.
-
---- @type table<any, WeedPlant>
---- Global table holding all WeedPlant instances, keyed by their unique ID.
+QBCore = exports['qb-core']:GetCoreObject()
 local WeedPlants = {}
 
---- @class WeedPlant
---- @field id number The unique identifier of the weed plant.
---- @field coords vector3 The coordinates of the weed plant in the game world.
---- @field time number The planting time (Unix timestamp).
---- @field gender string The gender of the plant, "female" or "male".
---- @field fertilizer table A table containing timestamps of fertilizer applications.
---- @field water table A table containing timestamps of water applications.
+--- Functions
 
-local WeedPlant = {}
-WeedPlant.__index = WeedPlant
-
---- Creates a new WeedPlant instance.
---- @param id number The unique identifier of the weed plant.
---- @param coords vector3 The coordinates of the weed plant in the game world.
---- @param time number The planting time (Unix timestamp).
---- @param gender string The gender of the plant, "female" or "male".
---- @param fertilizer table A table containing timestamps of fertilizer applications.
---- @param water table A table containing timestamps of water applications.
---- @return DrugLab The created DrugLab object.
-function WeedPlant:create(id, coords, time, gender, fertilizer, water)
-    local plant = setmetatable({}, WeedPlant)
-
-    plant.id = id
-    plant.coords = coords
-    plant.time = time or os.time()
-    plant.gender = gender or "female"
-    plant.fertilizer = fertilizer or {}
-    plant.water = water or {}
-
-    WeedPlants[id] = plant
-    WeedPlantCache[id] = {
-        coords = coords,
-        time = time
-    }
-
-    return plant
-end
-
---- Inserts a new weed plant into the database, creating a new WeedPlant instance.
---- @param coords (vector3) - Coordinates of the plant
---- @return plant (WeedPlant) or false, error message if failed
-function WeedPlant:new(coords)
-    if not coords or type(coords) ~= "vector3" then
-        return false, "Coords must be a vector3"
-    end
-
-    local time = os.time()
-
-    local id = MySQL.insert.await([[
-        INSERT INTO `weedplants` (`coords`, `time`, `fertilizer`, `water`, `gender`)
-        VALUES (:coords, :time, :fertilizer, :water, :gender)
-    ]], {
-        coords = json.encode(coords),
-        time = os.date('%Y-%m-%d %H:%M:%S', time),
-        fertilizer = json.encode({}),
-        water = json.encode({}),
-        gender = 'female'
-    })
-
-    if not id then
-        return false, "Failed to insert new weedplant into database"
-    end
-
-    -- Create and return the WeedPlant object using newly generated ID.
-    local plant = WeedPlant:create(id, coords, time, 'female', {}, {})
-
-    -- Update clients cache
-    TriggerClientEvent('weedplanting:client:NewPlant', -1, id, coords, time)
-    
-    return plant
-end
-
---- Removes the plant from the database and clears it from WeedPlants.
---- Optionally triggers a fire effect if policeDestroy is true.
---- @param policeDestroy (boolean) - Indicates if the plant is destroyed by police
---- @return success (boolean), message (string)
-function WeedPlant:remove(policeDestroy)
-    local id = self.id
-    local coords = self.coords
-
-    local success = MySQL.query.await([[
-        DELETE FROM `weedplants`
-        WHERE `id` = :id
-    ]], { 
-        id = id
-    })
-
-    WeedPlants[id] = nil
-    WeedPlantCache[id] = nil
-    
-    if policeDestroy then
-        TriggerClientEvent('weedplanting:client:FireGoBrrrrrrr', -1, coords)
-        Wait(Config.FireTime)
-    end
-
-    -- Update clients cache
-    TriggerClientEvent('weedplanting:client:RemovePlant', -1, id)
-
-    if success then
-        return true, ("Successfully deleted weedplant from database with id %s"):format(id)
-    else
-        return false, ("Could not delete weedplant from database with id %s"):format(id)
-    end
-end
-
---- Sets a specific property of the plant instance.
---- @param property (string) - Property to set
---- @param value - New value for the property
-function WeedPlant:set(property, value)
-    self[property] = value
-end
-
---- Saves the current state of the plant to the database.
---- @return success (boolean) - True if rows were affected
-function WeedPlant:save()
-    local affectedRows = MySQL.update.await([[
-        UPDATE `weedplants` SET
-            `coords` = :coords,
-            `time` = :time,
-            `fertilizer` = :fertilizer,
-            `water` = :water,
-            `gender` = :gender
-        WHERE `id` = :id
-    ]], {
-        coords = json.encode(self.coords),
-        time = self.time,
-        fertilizer = json.encode(self.fertilizer),
-        water = json.encode(self.water),
-        gender = self.gender,
-        id = self.id
-    })
-
-    return affectedRows > 0
-end
-
---- Retrieves a WeedPlant instance by its ID.
---- @param id (number) - ID of the plant
---- @return WeedPlant instance or nil if not found
-function WeedPlant:getPlant(id)
-    return WeedPlants[id]
-end
-
---- Calculates the plant's growth progress as a percentage.
---- @return growth (number) - Growth percentage (0-100)
-function WeedPlant:calcGrowth()
+--- Method to calculate the growth percentage for a given WeedPlants index
+--- @param k number - WeedPlants table index
+--- @return retval number - growth index [0-100]
+local calcGrowth = function(k)
+    if not WeedPlants[k] then return false end
     local current_time = os.time()
-    local growTime = Config.GrowTime * 60
-    local progress = os.difftime(current_time, self.time)
-    local growth = lib.math.round(progress * 100 / growTime, 2)
-
-    return math.min(growth, 100.00)
+    local growTime = Shared.GrowTime * 60
+    local progress = os.difftime(current_time, WeedPlants[k].time)
+    local growth = QBCore.Shared.Round(progress * 100 / growTime, 2)
+    local retval = math.min(growth, 100.00)
+    return retval
 end
 
---- Determines the growth stage of the plant.
---- @return stage (number) - Growth stage (1-5)
-function WeedPlant:calcStage()
-    local current_time = os.time()
-    local growTime = Config.GrowTime * 60
-    local progress = os.difftime(current_time, self.time)
-    local growth = math.min(lib.math.round(progress * 100 / growTime, 2), 100.00)
-
-    local growthThreshold = 20
-    
-    return math.min(5, math.floor((growth - 1) / growthThreshold) + 1)
+--- Method to calculate the growth stage of a weedplant for a given growth index
+--- @param growth number - growth index [0-100]
+--- @return stage number - growth stage number [1-5]
+local calcStage = function(growth)
+    local stage = math.floor(growth / 20)
+    if stage == 0 then stage += 1 end
+    return stage
 end
 
---- Calculates the remaining fertilizer level as a percentage.
---- @return fertilizer (number) - Fertilizer level percentage (0-100)
-function WeedPlant:calcFertilizer()
+--- Method to calculate the current fertilizer percentage for a given WeedPlants index
+--- @param k number - WeedPlants table index
+--- @return retval number - fertilizer index [0-100]
+local calcFertilizer = function(k)
+    if not WeedPlants[k] then return false end
     local current_time = os.time()
 
-    if #self.fertilizer == 0 then
+    if #WeedPlants[k].fertilizer == 0 then
         return 0
     else
-        local last_fertilizer = self.fertilizer[#self.fertilizer]
+        local last_fertilizer = WeedPlants[k].fertilizer[#WeedPlants[k].fertilizer]
         local time_elapsed = os.difftime(current_time, last_fertilizer)
-        local fertilizer = lib.math.round(100 - (time_elapsed / 60 * Config.FertilizerDecay), 2)
-
-        return math.max(fertilizer, 0.00)
+        local fertilizer = QBCore.Shared.Round(100 - (time_elapsed / 60 * Shared.FertilizerDecay), 2)
+        local retval = math.max(fertilizer, 0.00)
+        return retval
     end
 end
 
---- Calculates the remaining water level as a percentage.
---- @return water (number) - Water level percentage (0-100)
-function WeedPlant:calcWater()
+--- Method to calculate the current water percentage for a given WeedPlants index
+--- @param k number - WeedPlants table index
+--- @return retval number - water index [0-100]
+local calcWater = function(k)
+    if not WeedPlants[k] then return false end
     local current_time = os.time()
 
-    if #self.water == 0 then
+    if #WeedPlants[k].water == 0 then
         return 0
     else
-        local last_water = self.water[#self.water]
+        local last_water = WeedPlants[k].water[#WeedPlants[k].water]
         local time_elapsed = os.difftime(current_time, last_water)
-        local water = lib.math.round(100 - (time_elapsed / 60 * Config.WaterDecay), 2)
-
-        return math.max(water, 0.00)
+        local water = QBCore.Shared.Round(100 - (time_elapsed / 60 * Shared.WaterDecay), 2)
+        local retval = math.max(water, 0.00)
+        return retval
     end
 end
 
---- Calculates the overall health of the plant based on water and fertilizer levels over time.
---- @return health (number) - Plant health percentage (0-100)
-function WeedPlant:calcHealth()
+--- Method to calculate the health percentage for a given WeedPlants index
+--- @param k number - WeedPlants table index
+--- @return health number - health index [0-100]
+local calcHealth = function(k)
+    if not WeedPlants[k] then return false end
     local health = 100
     local current_time = os.time()
-    local planted_time = self.time
+    local planted_time = WeedPlants[k].time
     local elapsed_time = os.difftime(current_time, planted_time)
-    local intervals = math.floor(elapsed_time / 60 / Config.LoopUpdate)
-
+    local intervals = math.floor(elapsed_time / 60 / Shared.LoopUpdate)
     if intervals == 0 then return 100 end
 
-    for i = 1, intervals do
-        local interval_time = planted_time + math.floor(i * Config.LoopUpdate * 60)
+    for i=1, intervals, 1 do
+        -- check current water and fertilizer levels at every interval timestamp, if below thresholds, remove some health
+        local interval_time = planted_time + (i * Shared.LoopUpdate * 60)
 
-        if #self.fertilizer == 0 then
-            health -= HealthBaseDecay
+        -- fertilizer at interval_time amount:
+        local fertilizer_amount
+        if #WeedPlants[k].fertilizer == 0 then
+            fertilizer_amount = 0
+            health -= math.random(Shared.HealthBaseDecay[1], Shared.HealthBaseDecay[2])
         else
-            -- Find last_fertilizer time before interval_time
-            local last_fertilizer = planted_time
-
-            for j = 1, #self.fertilizer, 1 do
-                if self.fertilizer[j] < interval_time then
-                    last_fertilizer = math.max(last_fertilizer, self.fertilizer[j])
-                end
+            local last_fertilizer = math.huge
+            for i=1, #WeedPlants[k].fertilizer, 1 do
+                last_fertilizer = last_fertilizer < WeedPlants[k].fertilizer[i] and last_fertilizer or WeedPlants[k].fertilizer[i]
             end
-
             local time_since_fertilizer = os.difftime(interval_time, last_fertilizer)
-            local fertilizer_amount = math.max(lib.math.round(100 - (time_since_fertilizer / 60 * Config.FertilizerDecay), 2), 0.00)
 
-            if last_fertilizer == planted_time or fertilizer_amount < Config.FertilizerThreshold then
-                health -= HealthBaseDecay
+            fertilizer_amount = math.max(QBCore.Shared.Round(100 - (time_since_fertilizer / 60 * Shared.FertilizerDecay), 2), 0.00)
+            if fertilizer_amount < Shared.FertilizerThreshold then
+                health -= math.random(Shared.HealthBaseDecay[1], Shared.HealthBaseDecay[2])
             end
         end
-    
-        if #self.water == 0 then
-            health -= HealthBaseDecay
+
+        -- water at interval_time amount:
+        local water_amount
+        if #WeedPlants[k].water == 0 then
+            water_amount = 0
+            health -= math.random(Shared.HealthBaseDecay[1], Shared.HealthBaseDecay[2])
         else
-            -- Find last_water time before interval_time
-            local last_water = planted_time
-
-            for j = 1, #self.water, 1 do
-                if self.water[j] < interval_time then
-                    last_water = math.max(last_water, self.water[j])
-                end
+            local last_water = math.huge
+            for i=1, #WeedPlants[k].water, 1 do
+                last_water = last_water < WeedPlants[k].water[i] and last_water or WeedPlants[k].water[i]
             end
-
             local time_since_water = os.difftime(interval_time, last_water)
-            local water_amount = math.max(lib.math.round(100 - (time_since_water / 60 * Config.WaterDecay), 2), 0.00)
 
-            if last_water == planted_time or water_amount < Config.WaterThreshold then
-                health -= HealthBaseDecay
+            water_amount = math.max(QBCore.Shared.Round(100 - (time_since_water / 60 * Shared.WaterDecay), 2), 0.00)
+            if water_amount < Shared.WaterThreshold then
+                health -= math.random(Shared.HealthBaseDecay[1], Shared.HealthBaseDecay[2])
             end
         end
     end
@@ -267,215 +117,344 @@ function WeedPlant:calcHealth()
     return math.max(health, 0.0)
 end
 
---- Fetches all data from the database and creates WeedPlant instances
+--- Method to setup all the weedplants, fetched from the database
+--- @return nil
 local setupPlants = function()
-    local clear = Config.ClearOnStartup
-    local result = MySQL.Sync.fetchAll([[
-        SELECT * 
-        FROM `weedplants`
-    ]])
+    local result = MySQL.Sync.fetchAll('SELECT * FROM weedplants')
+    local current_time = os.time()
+    local growTime = Shared.GrowTime * 60
 
-    for _, data in pairs(result) do
-        local coords = json.decode(data.coords)
-        local fertilizer = json.decode(data.fertilizer)
-        local water = json.decode(data.water)
-        local time = math.round(data.time / 1000)
+    for k, v in pairs(result) do
+        local progress = os.difftime(current_time, v.time)
+        local growth = math.min(QBCore.Shared.Round(progress * 100 / growTime, 2), 100.00)
+        local stage = calcStage(growth)
+        local ModelHash = Shared.WeedProps[stage]
+        local coords = json.decode(v.coords)
+        local plant = CreateObjectNoOffset(ModelHash, coords.x, coords.y, coords.z + Shared.ObjectZOffset, true, true, false)
+        FreezeEntityPosition(plant, true)
+        WeedPlants[plant] = {
+            id = v.id,
+            coords = vector3(coords.x, coords.y, coords.z),
+            time = v.time,
+            fertilizer = json.decode(v.fertilizer),
+            water = json.decode(v.water),
+            gender = v.gender,
+            strain = v.strain
+        }
+    end
+end
 
-        local plant = WeedPlant:create(data.id, vector3(coords.x, coords.y, coords.z), time, data.gender, fertilizer, water)
-
-        if clear then
-            if plant:calcHealth() == 0 then
-                utils.print(("Clear on startup plant %s"):format(plant.id))
-                plant:remove()
-            end
+--- Method to delete all cached weed plants and their entities
+--- @return nil
+local destroyAllPlants = function()    
+    for k, v in pairs(WeedPlants) do
+        if DoesEntityExist(k) then
+            DeleteEntity(k)
+            WeedPlants[k] = nil
         end
     end
 end
 
+--- Method to update a plant object, removing the existing one and placing a new object
+--- @param k number - WeedPlants table index
+--- @param stage number - Stage number
+--- @return nil
+local updatePlantProp = function(k, stage)
+    if not WeedPlants[k] then return end
+    if not DoesEntityExist(k) then return end
+    local ModelHash = Shared.WeedProps[stage]
+    DeleteEntity(k)
+    local plant = CreateObjectNoOffset(ModelHash, WeedPlants[k].coords.x, WeedPlants[k].coords.y, WeedPlants[k].coords.z + Shared.ObjectZOffset, true, true, false)
+    FreezeEntityPosition(plant, true)
+    WeedPlants[plant] = WeedPlants[k]
+    WeedPlants[k] = nil
+end
+
+--- Method to perform an update on every weedplant, updating their prop if needed, repeats every Shared.LoopUpdate minutes
+--- @return nil
+updatePlants = function()
+    for k, v in pairs(WeedPlants) do
+        local growth = calcGrowth(k)
+        local stage = calcStage(growth)
+        if stage ~= v.stage then
+            WeedPlants[k].stage = stage
+            updatePlantProp(k, stage)
+        end
+    end
+
+    SetTimeout(Shared.LoopUpdate * 60 * 1000, updatePlants)
+end
+
+--- Resource start/stop events
+
+AddEventHandler('onResourceStart', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    setupPlants()
+    if Shared.ClearOnStartup then
+        Wait(5000) -- Wait 5 seconds to allow all functions to be executed on startup
+        for k, v in pairs(WeedPlants) do
+            if calcHealth(k) == 0 then
+                DeleteEntity(k)
+                MySQL.query('DELETE from weedplants WHERE id = :id', {
+                    ['id'] = WeedPlants[k].id
+                })
+                WeedPlants[k] = nil
+            end
+        end
+    end
+end)
+
+AddEventHandler('onResourceStop', function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    destroyAllPlants()
+end)
+
 --- Events
 
-RegisterNetEvent('weedplanting:server:CreateNewPlant', function(coords)
-    local src = source
-    local Player = server.GetPlayerFromId(src)
-    if not Player then return end
+RegisterNetEvent('ps-weedplanting:server:ClearPlant', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then return end
+    if #(GetEntityCoords(GetPlayerPed(source)) - WeedPlants[entity].coords) > 10 then return end
+    if calcHealth(entity) ~= 0 then return end
 
-    local PlayerData = server.getPlayerData(Player)
-
-    if not coords or type(coords) ~= "vector3" then return end
-    if #(GetEntityCoords(GetPlayerPed(src)) - coords) > Config.rayCastingDistance + 10 then return end
-
-    if server.removeItem(src, Config.FemaleSeed, 1) then
-        WeedPlant:new(coords)
-        server.createLog(PlayerData.name, 'New Plant', PlayerData.name .. ' (identifier: ' .. PlayerData.identifier .. ' | id: ' .. src .. ')' .. ' placed new plant ' .. coords)
+    if DoesEntityExist(entity) then
+        DeleteEntity(entity)
+        MySQL.query('DELETE from weedplants WHERE id = :id', {
+            ['id'] = WeedPlants[entity].id
+        })
+        WeedPlants[entity] = nil
     end
 end)
 
-RegisterNetEvent('weedplanting:server:ClearPlant', function(plantId, policeDestroy)
+RegisterNetEvent('ps-weedplanting:server:HarvestPlant', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then return end
     local src = source
-    local Player = server.GetPlayerFromId(src)
+    local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
+    if #(GetEntityCoords(GetPlayerPed(src)) - WeedPlants[entity].coords) > 10 then return end
+    if calcGrowth(entity) ~= 100 then return end
 
-    local PlayerData = server.getPlayerData(Player)
-
-    local plant = WeedPlant:getPlant(plantId)
-    if not plant then return end
-
-    if #(GetEntityCoords(GetPlayerPed(src)) - plant.coords) > 10 then return end
-
-    if policeDestroy and server.isPlayerPolice(Player) then
-        plant:remove(true)
-        server.createLog(PlayerData.name, 'Police Destroy', PlayerData.name .. ' (identifier: ' .. PlayerData.identifier .. ' | id: ' .. src .. ')' .. ' destroyed plant ' .. plantId)
-    elseif not policeDestroy and plant:calcHealth() ~= 0 then
-        plant:remove(false)
-        server.createLog(PlayerData.name, 'Clear Plant', PlayerData.name .. ' (identifier: ' .. PlayerData.identifier .. ' | id: ' .. src .. ')' .. ' cleared plant ' .. plantId)
+    if DoesEntityExist(entity) then
+        local health = calcHealth(entity)
+        if WeedPlants[entity].gender == 'female' then
+            local info = { health = health }
+            Player.Functions.AddItem(Shared.Strains[WeedPlants[entity].strain].harvest, 1, false, info)
+            TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.Strains[WeedPlants[entity].strain].harvest], 'add', 1)
+        else -- male seed added
+            local mSeeds = math.floor(health / 50)
+            local fSeeds = math.floor(health / 20)
+            Player.Functions.AddItem(Shared.MaleSeed, mSeeds, false)
+            Player.Functions.AddItem(Shared.Strains[WeedPlants[entity].strain].seed, fSeeds, false)
+            TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.MaleSeed], 'add', mSeeds)
+            TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.Strains[WeedPlants[entity].strain].seed], 'add', fSeeds)
+        end
+        
+        DeleteEntity(entity)
+        MySQL.query('DELETE from weedplants WHERE id = :id', {
+            ['id'] = WeedPlants[entity].id
+        })
+        WeedPlants[entity] = nil
     end
 end)
 
-RegisterNetEvent('weedplanting:server:HarvestPlant', function(plantId)
+RegisterNetEvent('ps-weedplanting:server:PoliceDestroy', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then return end
     local src = source
-    local Player = server.GetPlayerFromId(src)
+    local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
+    if Player.PlayerData.job.type ~= Shared.CopJob then return end
+    if #(GetEntityCoords(GetPlayerPed(src)) - WeedPlants[entity].coords) > 10 then return end
 
-    local PlayerData = server.getPlayerData(Player)
+    if DoesEntityExist(entity) then
+        MySQL.query('DELETE from weedplants WHERE id = :id', {
+            ['id'] = WeedPlants[entity].id
+        })
 
-    local plant = WeedPlant:getPlant(plantId)
-    if not plant then return end
+        TriggerClientEvent('ps-weedplanting:client:FireGoBrrrrrrr', -1, WeedPlants[entity].coords)
+        Wait(Shared.FireTime)
+        DeleteEntity(entity)
 
-    if #(GetEntityCoords(GetPlayerPed(src)) - plant.coords) > 10 then return end
-
-    if plant:calcGrowth() ~= 100 then return end
-
-    local health = plant:calcHealth()
-    local gender = plant.gender
-
-    if gender == 'female' then
-        local metaData = { health = health }
-        server.addItem(src, Config.BranchItem, 1, metaData)
-    else -- male seed added
-        local mSeeds = math.floor(health / 20)
-        server.addItem(src, Config.MaleSeed, mSeeds)
-
-        local fSeeds = math.floor(health / 20)
-        server.addItem(src, Config.FemaleSeed, fSeeds)
+        WeedPlants[entity] = nil
     end
-
-    plant:remove(false)
-
-    server.createLog(PlayerData.name, 'Harvest Plant', PlayerData.name .. ' (identifier: ' .. PlayerData.identifier .. ' | id: ' .. src .. ')' .. ' harvested plant: ' .. id .. ' Gender: ' .. gender .. ' Health: ' .. health)
 end)
 
-RegisterNetEvent('weedplanting:server:GiveWater', function(plantId)
+RegisterNetEvent('ps-weedplanting:server:GiveWater', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then return end
     local src = source
-    local Player = server.GetPlayerFromId(src)
+    local Player = QBCore.Functions.GetPlayer(src)
     if not Player then return end
+    if #(GetEntityCoords(GetPlayerPed(src)) - WeedPlants[entity].coords) > 10 then return end
+
+    if Player.Functions.RemoveItem(Shared.FullCanItem, 1, false) then
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.FullCanItem], 'remove', 1)
+        TriggerClientEvent('QBCore:Notify', src, _U('watered_plant'), 'success', 2500)
+        Player.Functions.AddItem(Shared.EmptyCanItem, 1, false)
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.EmptyCanItem], 'add', 1)
+        
+        WeedPlants[entity].water[#WeedPlants[entity].water + 1] = os.time()
+        MySQL.update('UPDATE weedplants SET water = (:water) WHERE id = (:id)', {
+            ['water'] = json.encode(WeedPlants[entity].water),
+            ['id'] = WeedPlants[entity].id,
+        })
+    end
+end)
+
+RegisterNetEvent('ps-weedplanting:server:GiveFertilizer', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then return end
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+    if #(GetEntityCoords(GetPlayerPed(src)) - WeedPlants[entity].coords) > 10 then return end
+
+    if Player.Functions.RemoveItem(Shared.FertilizerItem, 1, false) then
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.FertilizerItem], 'remove', 1)
+        TriggerClientEvent('QBCore:Notify', src, _U('fertilizer_added'), 'success', 2500)
+        
+        WeedPlants[entity].fertilizer[#WeedPlants[entity].fertilizer + 1] = os.time()
+        MySQL.update('UPDATE weedplants SET fertilizer = (:fertilizer) WHERE id = (:id)', {
+            ['fertilizer'] = json.encode(WeedPlants[entity].fertilizer),
+            ['id'] = WeedPlants[entity].id,
+        })
+    end
+end)
+
+RegisterNetEvent('ps-weedplanting:server:AddMaleSeed', function(netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then return end
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not Player then return end
+    if #(GetEntityCoords(GetPlayerPed(src)) - WeedPlants[entity].coords) > 10 then return end
+
+    if Player.Functions.RemoveItem(Shared.MaleSeed, 1, false) then
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.MaleSeed], 'remove', 1)
+        TriggerClientEvent('QBCore:Notify', src, _U('male_seed_added'), 'success', 2500)
+        
+        WeedPlants[entity].gender = 'male'
+        MySQL.update('UPDATE weedplants SET gender = (:gender) WHERE id = (:id)', {
+            ['gender'] = WeedPlants[entity].gender,
+            ['id'] = WeedPlants[entity].id,
+        })
+    end
+end)
+
+RegisterNetEvent('ps-weedplanting:server:CreateNewPlant', function(coords,index)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    --print(index)
+    if not Player then return end
+    if #(GetEntityCoords(GetPlayerPed(src)) - coords) > Shared.rayCastingDistance + 10 then return end
+    if Player.Functions.RemoveItem(Shared.Strains[index].seed, 1) and Player.Functions.RemoveItem(Shared.PlantTubItem, 1) then
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.Strains[index].seed], 'remove', 1)
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.PlantTubItem], 'remove', 1)
+        local ModelHash = Shared.WeedProps[1]
+        local plant = CreateObjectNoOffset(ModelHash, coords.x, coords.y, coords.z + Shared.ObjectZOffset, true, true, false)
+        FreezeEntityPosition(plant, true)
+        local time = os.time()
+        MySQL.insert('INSERT into weedplants (coords, time, fertilizer, water, gender,strain) VALUES (:coords, :time, :fertilizer, :water, :gender,:strain)', {
+            ['coords'] = json.encode(coords),
+            ['time'] = time,
+            ['fertilizer'] = json.encode({}),
+            ['water'] = json.encode({}),
+            ['gender'] = 'female',
+            ['strain'] = index
+        }, function(data)
+            WeedPlants[plant] = {
+                id = data,
+                coords = coords,
+                time = time,
+                fertilizer = {},
+                water = {},
+                gender = 'female',
+                strain = index
+            }
+        end)
+    end
+end)
+
+RegisterNetEvent('ps-weedplanting:server:GetFullWateringCan', function(netId)
+   
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
     
-    local plant = WeedPlant:getPlant(plantId)
-    if not plant then return end
-
-    if #(GetEntityCoords(GetPlayerPed(src)) - plant.coords) > 10 then return end
-
-    if server.removeItem(src, Config.WaterItem, 1) then
-        local water = plant.water
-        water[#water + 1] = os.time()
-
-        plant:set('water', water)
-        local saved = plant:save()
-
-        if not saved then
-            utils.print(("Could not save plant with id %s"):format(plantId))
-        end
-
-        utils.notify(src, Locales['notify_title_planting'], Locales['watered_plant'], 'success', 2500)
-    end
-end)
-
-RegisterNetEvent('weedplanting:server:GiveFertilizer', function(plantId)
-    local src = source
-    local Player = server.GetPlayerFromId(src)
-    if not Player then return end
-
-    local plant = WeedPlant:getPlant(plantId)
-    if not plant then return end
-
-    if #(GetEntityCoords(GetPlayerPed(src)) - plant.coords) > 10 then return end
-
-    if server.removeItem(src, Config.FertilizerItem, 1) then
-        local fertilizer = plant.fertilizer
-        fertilizer[#fertilizer + 1] = os.time()
-
-        plant:set('fertilizer', fertilizer)
-        local saved = plant:save()
-
-        if not saved then
-            utils.print(("Could not save plant with id %s"):format(plantId))
-        end
-
-        utils.notify(src, Locales['notify_title_planting'], Locales['fertilizer_added'], 'success', 2500)
-    end
-end)
-
-RegisterNetEvent('weedplanting:server:AddMaleSeed', function(plantId)
-    local src = source
-    local Player = server.GetPlayerFromId(src)
-    if not Player then return end
-
-    local plant = WeedPlant:getPlant(plantId)
-    if not plant then return end
-
-    if #(GetEntityCoords(GetPlayerPed(src)) - plant.coords) > 10 then return end
-
-    if server.removeItem(src, Config.MaleSeed, 1) then
-        plant:set('gender', 'male')
-        local saved = plant:save()
-
-        if not saved then
-            utils.print(("Could not save plant with id %s"):format(plantId))
-        end
-
-        utils.notify(src, Locales['notify_title_planting'], Locales['male_seed_added'], 'success', 2500)
+    if Player.Functions.RemoveItem(Shared.EmptyCanItem, 1, false) and Player.Functions.RemoveItem(Shared.WaterItem, 1, false) then
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.EmptyCanItem], 'remove', 1)
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.WaterItem], 'remove', 1)
+        TriggerClientEvent('QBCore:Notify', src, _U('filled_can'), 'success', 2500)
+        Player.Functions.AddItem(Shared.FullCanItem, 1, false)
+        TriggerClientEvent('inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.FullCanItem], 'add', 1)
     end
 end)
 
 --- Callbacks
 
-lib.callback.register('weedplanting:server:GetPlantData', function(source, plantId)
-    local plant = WeedPlant:getPlant(plantId)
-    if not plant then
-        return false, ("Could not find weedplant with id %s"):format(plantId)
-    end
-    
-    local retData = {
-        id = plant.id,
-        coords = plant.coords,
-        time = plant.time,
-        gender = plant.gender,
-        fertilizer = plant:calcFertilizer(),
-        water = plant:calcWater(),
-        stage = plant:calcStage(),
-        health = plant:calcHealth(),
-        growth = plant:calcGrowth()
+QBCore.Functions.CreateCallback('ps-weedplanting:server:GetPlantData', function(source, cb, netId)
+    local entity = NetworkGetEntityFromNetworkId(netId)
+    if not WeedPlants[entity] then cb(nil) return end
+    local temp = {
+        id = WeedPlants[entity].id,
+        coords = WeedPlants[entity].coords,
+        time = WeedPlants[entity].time,
+        fertilizer = calcFertilizer(entity),
+        water = calcWater(entity),
+        gender = WeedPlants[entity].gender,
+        stage = calcStage(calcGrowth(entity)),
+        health = calcHealth(entity),
+        growth = calcGrowth(entity),
+        strain = WeedPlants[entity].strain --STRAIN IN FETCH METADATA
     }
-
-    return true, retData
-end)
-
-lib.callback.register('weedplanting:server:GetPlantLocations', function(source)
-    return(WeedPlantCache)
+    cb(temp)
 end)
 
 --- Items
 
-server.registerUseableItem(Config.FemaleSeed, function(source)
-    TriggerClientEvent('weedplanting:client:UseWeedSeed', source)
+Citizen.CreateThread(function()
+
+    for k,v in pairs(Shared.Strains) do
+        --print(k)
+        QBCore.Functions.CreateUseableItem(v.seed, function(source)
+            local src = source
+            local Player = QBCore.Functions.GetPlayer(src)
+            local tub = Player.Functions.GetItemByName(Shared.PlantTubItem)
+            
+            if tub ~= nil then
+                TriggerClientEvent("ps-weedplanting:client:UseWeedSeed", source, k)
+            else
+                TriggerClientEvent('QBCore:Notify', src, _U('missing_tub'), 'error', 2500)
+            end
+        end)
+
+    end
+
 end)
+
+--[[
+QBCore.Functions.CreateUseableItem(Shared.FemaleSeed, function(source)
+    local src = source
+	local Player = QBCore.Functions.GetPlayer(src)
+    local tub = Player.Functions.GetItemByName(Shared.PlantTubItem)
+	
+    if tub ~= nil then
+        TriggerClientEvent("ps-weedplanting:client:UseWeedSeed", source)
+    else
+        TriggerClientEvent('QBCore:Notify', src, _U('missing_tub'), 'error', 2500)
+    end
+end)
+]]
+
+QBCore.Functions.CreateUseableItem(Shared.EmptyCanItem, function(source)
+    local src = source
+    TriggerClientEvent("ps-weedplanting:client:OpenFillWaterMenu", src)
+end)
+
 
 --- Threads
 
 CreateThread(function()
-    setupPlants()
-
-    while true do
-        globalState.WeedplantingTime = os.time()
-        Wait(1000)
-    end
+    Wait(Shared.LoopUpdate * 60 * 1000)
+    updatePlants()
 end)
