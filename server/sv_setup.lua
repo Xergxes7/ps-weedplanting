@@ -13,6 +13,7 @@ MySQL.ready(function()
                 `fertilizer` longtext NOT NULL CHECK (json_valid(`fertilizer`)),
                 `water` longtext NOT NULL CHECK (json_valid(`water`)),
                 `gender` varchar(45) NOT NULL,
+                `strain` int(255),
                 PRIMARY KEY (`id`)
             )
         ]])
