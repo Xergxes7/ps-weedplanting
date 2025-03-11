@@ -81,8 +81,8 @@ Shared.Strains = {
 
 --- Weed Processing | Weed-Lab
 Shared.WeedLab = {
-    EnableTp = false, -- Set this to false if you do not want to use this teleportation system. 
-    RequireKey = false,  -- Set this to false to disable the requirement of a lab key to enter the weed lab (set to true if you want to use the key)
+    EnableTp = true, -- Set this to false if you do not want to use this teleportation system. 
+    RequireKey = true,  -- Set this to false to disable the requirement of a lab key to enter the weed lab (set to true if you want to use the key)
     EnableSound = true, --  Set this to false if you dont want the interact sound while exiting / entering the wee lab.
 }
 
@@ -113,7 +113,7 @@ Shared.ClearOnStartup = true -- Clear dead plants on script start-up
 Shared.ObjectZOffset = - 0.5 -- Z-coord offset for WeedProps
 Shared.FireTime = 10000
 
-Shared.GrowTime = 180 -- Time in minutes for a plant to grow from 0 to 100
+Shared.GrowTime = 120 -- Time in minutes for a plant to grow from 0 to 100
 Shared.LoopUpdate = 15 -- Time in minutes to perform a loop update for water, nutrition, health, growth, etc.
 Shared.WaterDecay = 0.4 -- Percent of water that decays every minute
 Shared.FertilizerDecay = 0.4 -- Percent of fertilizers that decays every minute

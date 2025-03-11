@@ -3,8 +3,8 @@ game 'gta5'
 lua54 'yes'
 
 version '2.0.0'
-description 'Project Sloth Weedplanting script ft Xergxes7'
-author 'Lionh34rt'
+description 'Project Sloth Weedplanting script - MultiStrain'
+author 'Lionh34rt and Xergxes7'
 
 shared_scripts {
     'shared/sh_shared.lua',

@@ -93,31 +93,32 @@ QBCore.Functions.CreateCallback('ps-weedplanting:server:PackageGoods', function(
         return
     end
     packageCache[citizenid] = cacheobject
+    local itemremoved = false
     --Shared.Strains[k].packaged
     if Shared.UseStrains then
         --print(json.encode(packageCache[citizenid]))
+
         for k,v in pairs(Shared.Strains) do
             --print(k)
             if Player.Functions.RemoveItem(Shared.Strains[k].packaged, 1) then
                 TriggerClientEvent('ps-inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.Strains[k].packaged], 'remove', 1)
                 --print(json.encode(packageCache[citizenid]))
                 packageCache[citizenid].strain = k
+                itemremoved = true
                 break
-            else
-                cb(false)
-                return
             end
         end
     else
         if Player.Functions.RemoveItem(Shared.PackedWeedItem, 1) then
             TriggerClientEvent('ps-inventory:client:ItemBox', src, QBCore.Shared.Items[Shared.PackedWeedItem], 'remove', 1)
+            itemremoved = true
         else
             cb(false)
             return
         end
     end
     packageCache[citizenid].status = 'waiting'
-    cb(true)
+    if itemremoved then cb(true) else cb(false) end
 
     CreateThread(function()
         Wait(Shared.PackageTime * 60 * 1000)

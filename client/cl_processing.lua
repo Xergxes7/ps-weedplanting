@@ -166,6 +166,16 @@ end)
 RegisterNetEvent('ps-weedplanting:client:PackDryWeed', function()
     
     local hasItem = QBCore.Functions.HasItem(Shared.WeedItem)
+    if Shared.UseStrains then
+        for k,v in pairs(Shared.Strains) do
+            hasItem = QBCore.Functions.HasItem(Shared.Strains[k].processed, 1)
+            if hasItem then
+                break
+            end
+        end
+    end
+
+    
     
     if not hasItem then
         QBCore.Functions.Notify(_U('dont_have_enough_dryweed'), 'error', 2500)

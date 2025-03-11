@@ -11,6 +11,24 @@ local dropOffArea
 local deliveryPed
 local madeDeal = false
 
+
+function HasItem(items, amount)
+    local amount = amount or 1
+    local count = 0
+    for _, itemData in pairs(QBCore.Functions.GetPlayerData().items) do
+        if itemData and (itemData.name == items) then
+            if Config.Debug then print("^5Debug^7: ^3HasItem^7: ^2Item^7: '^3"..tostring(items).."^7' ^2Slot^7: ^3"..itemData.slot.." ^7x(^3"..tostring(itemData.amount).."^7)") end
+            count += itemData.amount
+        end
+    end
+    if count >= amount then
+        if Config.Debug then print("^5Debug^7: ^3HasItem^7: ^2Items ^5FOUND^7 x^3"..count.."^7") end
+        return true
+    else
+        if Config.Debug then print("^5Debug^7: ^3HasItem^7: ^2Items ^1NOT FOUND^7") end
+        return false
+    end
+end
 --- Functions
 
 --- Checks if a player has a suspicious package on him or her
@@ -92,12 +110,16 @@ end
 --- @return nil
 local createDropOffPed = function(coords)
 	if deliveryPed then return end
-	local model = Shared.DropOffPeds[math.random(#Shared.DropOffPeds)]
+	
+    
+    local model = Shared.DropOffPeds[math.random(#Shared.DropOffPeds)]
 	local hash = GetHashKey(model)
 
     RequestModel(hash)
     while not HasModelLoaded(hash) do Wait(0) end
 	deliveryPed = CreatePed(5, hash, coords.x, coords.y, coords.z - 1.0, coords.w, true, true)
+    
+
 	while not DoesEntityExist(deliveryPed) do Wait(0) end
 	ClearPedTasks(deliveryPed)
     ClearPedSecondaryTask(deliveryPed)
@@ -126,8 +148,45 @@ end
 --- @return nil
 local createNewDropOff = function()
     if hasDropOff then return end
+    local hasitem = false
+    if Shared.UseStrains then
+        for k,v in pairs(Shared.Strains) do
+            if QBCore.Functions.HasItem(Shared.Strains[k].weedrunitem, 1)  then
+                hasitem = true
+                break
+            end
+        end
+    else
+        if QBCore.Functions.HasItem(Shared.SusPackageItem, 1) then
+            hasitem = true
+        end
+    end
+
+    if not hasitem then
+        local NotifData = {
+            title = _U('weedrun_delivery_title'), -- Notification header
+            message = _U('weedrun_delivery_nomorepackages'), -- Notification content message
+            icon    = '/html/img/icons/weed.webp', -- Icon of the notification
+            duration = 8000, -- specify how many seconds,
+            type = "success", -- the home screen will also appear on the notification side.
+            buttonactive = false, -- Activate if you want to use the button function
+            button = false
+        }
+        exports["gksphone"]:Notification(NotifData)
+        return
+    end
     hasDropOff = true
-    TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_godropoff'), 'fas fa-cannabis', '#00FF00', 8000)
+    local NotifData = {
+        title = _U('weedrun_delivery_title'), -- Notification header
+        message = _U('weedrun_delivery_godropoff'), -- Notification content message
+        icon    = '/html/img/icons/weed.webp', -- Icon of the notification
+        duration = 8000, -- specify how many seconds,
+        type = "success", -- the home screen will also appear on the notification side.
+        buttonactive = false, -- Activate if you want to use the button function
+        button = false
+    }
+    exports["gksphone"]:Notification(NotifData)
+    --TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_godropoff'), 'fas fa-cannabis', '#00FF00', 8000)
     local randomLoc = Shared.DropOffLocations[math.random(#Shared.DropOffLocations)]
     createDropOffBlip(randomLoc)
     dropOffArea = CircleZone:Create(randomLoc.xyz, 85.0, {
@@ -138,7 +197,17 @@ local createNewDropOff = function()
 	dropOffArea:onPlayerInOut(function(isPointInside, point)
 		if isPointInside then
 			if not deliveryPed then
-				TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_makedropoff'), 'fas fa-cannabis', '#00FF00', 8000)
+                local NotifData = {
+                    title = _U('weedrun_delivery_title'), -- Notification header
+                    message = _U('weedrun_delivery_makedropoff'), -- Notification content message
+                    icon    = '/html/img/icons/weed.webp', -- Icon of the notification
+                    duration = 8000, -- specify how many seconds,
+                    type = "success", -- the home screen will also appear on the notification side.
+                    buttonactive = false, -- Activate if you want to use the button function
+                    button = false
+                }
+                exports["gksphone"]:Notification(NotifData)
+                --	TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_makedropoff'), 'fas fa-cannabis', '#00FF00', 8000)
 				createDropOffPed(randomLoc)
 			end
 		end
@@ -174,13 +243,28 @@ RegisterNetEvent('QBCore:Player:SetPlayerData', function(val)
     checkPackage()
 end)
 
+
+
+
 RegisterNetEvent('ps-weedplanting:client:StartPackage', function(data)
     if waitingForPackage then return end
-    local hasItem = QBCore.Functions.HasItem(Shared.PackedWeedItem, 1)
+    local hasItem = false
+    --[[if Shared.UseStrains then
+        for k,v in pairs(Shared.Strains) do
+            if QBCore.Functions.HasItem(Shared.Strains[k].package, 1)  then
+                hasitem = true
+                break
+            end
+        end
+    else
+        if QBCore.Functions.HasItem(Shared.PackedWeedItem, 1) then
+            hasitem = true
+        end
+    end
     if not hasItem then
         QBCore.Functions.Notify(_U('dont_have_anything'), 'error', 2500)
         return
-    end
+    end]]
 
     local ped = PlayerPedId()
     FreezeEntityPosition(ped, true)
@@ -199,7 +283,8 @@ RegisterNetEvent('ps-weedplanting:client:StartPackage', function(data)
     }, {}, {}, {}, function()
         FreezeEntityPosition(ped, false)
         QBCore.Functions.TriggerCallback('ps-weedplanting:server:PackageGoods', function(result)
-            if not result then return end
+            local itemremoved = result
+            if not itemremoved then QBCore.Functions.Notify(_U('dont_have_anything'), 'error', 2500) return end
             waitingForPackage = true
             QBCore.Functions.Notify(_U('wait_closeby'), 'primary', 2500)
     
@@ -234,7 +319,18 @@ end)
 RegisterNetEvent('ps-weedplanting:client:ClockIn', function()
     if delivering then return end
     delivering = true
-    TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_waitfornew'), 'fas fa-cannabis', '#00FF00', 8000)
+    local NotifData = {
+        title = _U('weedrun_delivery_title'), -- Notification header
+        message = _U('weedrun_delivery_waitfornew'), -- Notification content message
+        icon    = '/html/img/icons/weed.webp', -- Icon of the notification
+        duration = 8000, -- specify how many seconds,
+        type = "success", -- the home screen will also appear on the notification side.
+        buttonactive = false, -- Activate if you want to use the button function
+        button = false
+    }
+    exports["gksphone"]:Notification(NotifData)
+
+    --TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_waitfornew'), 'fas fa-cannabis', '#00FF00', 8000)
     Wait(math.random(Shared.DeliveryWaitTime[1], Shared.DeliveryWaitTime[2]))
     createNewDropOff()
 end)
@@ -259,6 +355,8 @@ RegisterNetEvent('ps-weedplanting:client:DeliverWeed', function()
         QBCore.Functions.Notify(_U('weedrun_hasnopackage'), 'error', 2500)
         return
     end
+
+
 
     local ped = PlayerPedId()
 	if not IsPedOnFoot(ped) then return end
@@ -297,7 +395,17 @@ RegisterNetEvent('ps-weedplanting:client:DeliverWeed', function()
 		dropOffBlip = nil
 		dropOffArea:destroy()
 		Wait(2000)
-		TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_success'), 'fas fa-cannabis', '#00FF00', 20000)
+        local NotifData = {
+            title = _U('weedrun_delivery_title'), -- Notification header
+            message = _U('weedrun_delivery_success'), -- Notification content message
+            icon    = '/html/img/icons/weed.webp', -- Icon of the notification
+            duration = 8000, -- specify how many seconds,
+            type = "success", -- the home screen will also appear on the notification side.
+            buttonactive = false, -- Activate if you want to use the button function
+            button = false
+        }
+        exports["gksphone"]:Notification(NotifData)
+		--TriggerEvent('qb-phone:client:CustomNotification', _U('weedrun_delivery_title'), _U('weedrun_delivery_success'), 'fas fa-cannabis', '#00FF00', 20000)
         ClearPedTasks(ped)
 		
         -- Delete Delivery Ped
