@@ -23,7 +23,7 @@ For all support questions, ask in our [Discord](https://www.discord.gg/projectsl
 * Run the attached SQL script (weedplanting.sql)
 * Start resource through server.cfg
 * Restart your server.
-## older qb-core
+## qb-core
 ## Add to your qb-core > shared > items.lua
 ```lua
 --- ps-weedplanting
@@ -100,6 +100,13 @@ weedplant_package_amnesia 	 = {name = 'weedplant_package_amnesia', 			label = 'S
 weedplant_package_ak47  	 = {name = 'weedplant_package_ak47', 			label = 'Suspicious Package', 			weight = 10000, 	type = 'item', 		image = 'weedplant_package.png', 	unique = true, 		useable = false, 	shouldClose = false,   combinable = nil,   description = 'Suspicious Package'},
 
 
+--Growing Items
+plant_tub 			         = {name = 'plant_tub', 			        label = 'Plant Tub', 		     		weight = 1000, 		type = 'item', 		image = 'plant_tub.png', 		unique = false, 	useable = false, 	shouldClose = false,   combinable = nil,   description = 'Pot for planting plants'},
+empty_watering_can 			 = {name = 'empty_watering_can', 			label = 'Empty Watering Can', 			weight = 500, 		type = 'item', 		image = 'watering_can.png', 	    	unique = true, 	    	useable = true, 	shouldClose = true,	   combinable = nil,   description = 'Empty watering can'},
+full_watering_can 			 = {name = 'full_watering_can', 			label = 'Full Watering Can', 			weight = 1000, 		type = 'item', 		image = 'watering_can.png', 	   	unique = true, 	    	useable = false, 	shouldClose = false,	   combinable = nil,   description = 'Watering can filled with water for watering plants'},
+keya                         		 = {name = "keya",                          		label = "Labkey A",                 		weight = 0,         	type = "item",      	image = "keya.png",                 	unique = true,      	useable = false,    shouldClose = false,   combinable = nil,   description = "Labkey A.."},
+weed_nutrition               = { name = 'weed_nutrition', label = 'Plant Fertilizer', weight = 2000, type = 'item', image = 'weed_nutrition.png', unique = false, useable = true, shouldClose = true, combinable = nil, description = 'Plant nutrition' },
+empty_weed_bag               = { name = 'empty_weed_bag', label = 'Empty Weed Bag', weight = 0, type = 'item', image = 'weed_baggy_empty.png', unique = false, useable = true, shouldClose = true, combinable = nil, description = 'A small empty bag' },
 
 
 ```
