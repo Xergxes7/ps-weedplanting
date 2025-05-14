@@ -23,7 +23,7 @@ For all support questions, ask in our [Discord](https://www.discord.gg/projectsl
 * Run the attached SQL script (weedplanting.sql)
 * Start resource through server.cfg
 * Restart your server.
-## qb-core
+## older qb-core
 ## Add to your qb-core > shared > items.lua
 ```lua
 --- ps-weedplanting

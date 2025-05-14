@@ -84,6 +84,7 @@ local checkPackage = function()
     else
         DetachEntity(package, true, true)
         DeleteObject(package)
+        SetPlayerSprint(PlayerId(), true)
         StopAnimTask(PlayerPedId(), 'anim@heists@box_carry@', 'idle', 1.0)
         package = nil
         hasPackage = false
